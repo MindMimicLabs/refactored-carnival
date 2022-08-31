@@ -1,0 +1,148 @@
+---
+title: "Congressional Trades as an Index Fund"
+author:
+  - "Mark Newman"
+date: "2022/08/31"
+editor_options: 
+  chunk_output_type: console
+---
+
+Setup location and clear out all existing variables
+
+```{r}
+here::i_am('index.rmd')
+rm(list = ls())
+```
+
+Add in all the libraries we need
+
+```{r message = F, warning = F}
+library(here)
+library(rvest)
+library(dplyr)
+library(crul)
+library(stringr)
+library(lubridate)
+```
+
+Setup the root URLs and paths
+
+```{r}
+year <- year(today())
+root_url <- 'https://disclosures-clerk.house.gov'
+zip_dir <- here('cache/zip')
+pdf_dir <- here('cache/pdf')
+txt_dir <- here('cache/txt')
+```
+
+Setup the HTTP Client
+
+```{r}
+client <- HttpClient$new(url = root_url)
+```
+```{r echo = F}
+rm(root_url)
+```
+
+Make sure the `pdf_dir` exists
+
+```{r echo = !dir.exists(pdf_dir), eval = !dir.exists(pdf_dir)}
+if(!dir.exists(pdf_dir)) {
+  dir.create(pdf_dir, recursive = T)
+}
+```
+
+Make sure the `zip_dir` exists
+
+```{r echo = !dir.exists(zip_dir), eval = !dir.exists(zip_dir)}
+if(!dir.exists(zip_dir)) {
+  dir.create(zip_dir, recursive = T)
+}
+```
+
+Make sure the `txt_dir` exists
+
+```{r echo = !dir.exists(txt_dir), eval = !dir.exists(txt_dir)}
+if(!dir.exists(txt_dir)) {
+  dir.create(txt_dir, recursive = T)
+}
+```
+
+Check to see if we need to re-retrieve the yearly zip file.
+
+```{r}
+yearly_file <- str_glue('{zip_dir}/{year}FD.txt')
+
+check_cache <- file.exists(yearly_file)
+needs_refresh <- !check_cache
+```
+
+```{r echo = check_cache, eval = check_cache}
+if(check_cache) {
+  data <- read.delim(yearly_file)
+  data <-
+    data %>%
+    mutate(
+      FilingDate = mdy(FilingDate)) %>%
+    filter(!is.na(FilingDate))
+  needs_refresh <- 
+    !(max(data$FilingDate) >= (today() - ddays(x = 1)))
+  rm(data)
+}
+```
+```{r echo = F}
+rm(check_cache)
+```
+
+If necessary, (re)retrieve the yearly zip file
+
+```{r echo = needs_refresh, eval = needs_refresh}
+if(needs_refresh) {
+  zip_url <-  str_glue('/public_disc/financial-pdfs/{year}FD.ZIP')
+  zip_file <- str_glue('{zip_dir}/{year}FD.ZIP')
+  res <- client$get(path = zip_url, disk = zip_file)
+  unzip(zip_file, exdir = zip_dir)
+  rm(zip_url, zip_file, res)
+}
+```
+```{r echo = F}
+rm(needs_refresh)
+```
+
+Load the yearly data
+
+```{r}
+data <- read.delim(yearly_file)
+data <-
+  data %>%
+  mutate(
+    FilingDate = mdy(FilingDate)) %>%
+  filter(!is.na(FilingDate)) %>%
+  filter(FilingType == 'P')
+```
+```{r echo = F}
+rm(yearly_file)
+```
+
+Loop through the `DocID`s to get all the PDFs
+
+```{r}
+if(interactive()) { pb <- txtProgressBar(max = nrow(data), style = 3) }
+for(i in 1:nrow(data)) {
+  id <- data$DocID[i]
+  pdf_url <- str_glue('/public_disc/ptr-pdfs/{year}/{id}.pdf')
+  pdf_file <- str_glue('{pdf_dir}/{id}.pdf')
+  if(!file.exists(pdf_file)) {
+    res <- client$get(path = pdf_url, disk = pdf_file)
+    Sys.sleep(5)
+    rm(res)
+  }
+  if(interactive()) { setTxtProgressBar(pb, i) }
+  rm(pdf_url, pdf_file)
+}
+if(interactive()) {
+  close(pb)
+  rm(pb)
+}
+rm(i)
+```

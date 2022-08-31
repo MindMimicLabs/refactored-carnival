@@ -1,0 +1,12 @@
+# GIT Vaccinate
+.Rhistory
+.RData
+.DS_Store
+.Rproj.user
+.httr-oauth
+
+# knitted files
+*.html
+
+# data
+cache/
